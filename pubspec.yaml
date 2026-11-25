@@ -2,6 +2,8 @@ name: image_budget
 description: Decode images at display size and keep Flutter's image cache under an explicit byte budget.
 version: 0.1.0-dev
 publish_to: none
+repository: https://github.com/ultraelectronica/image_budget
+issue_tracker: https://github.com/ultraelectronica/image_budget/issues
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
