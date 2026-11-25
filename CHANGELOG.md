@@ -22,3 +22,4 @@
 - Headless benchmark for 26 decode scenarios, sizing overhead, and cache
   retention.
 - Example app, Android scaffold, and documentation.
+- App integration guide in `docs/using-in-an-app.md`.

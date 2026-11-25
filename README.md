@@ -41,6 +41,9 @@ dependencies:
     path: ../image_budget
 ```
 
+For a complete app setup, see
+[Use image_budget in an app](docs/using-in-an-app.md).
+
 Once it's published:
 
 ```sh
@@ -300,6 +303,7 @@ part of that run. Frame times moved with display mode and load.
 ## Docs
 
 - [Stock vs. budgeted cover demo](example/README.md)
+- [Use image_budget in an app](docs/using-in-an-app.md)
 - [Architecture](docs/architecture.md)
 - [Benchmark method](docs/benchmarks.md)
 - [Benchmark harness](benchmark/README.md)
