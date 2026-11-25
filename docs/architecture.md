@@ -25,16 +25,17 @@ ImageBudget
 ## Sizing pipeline
 
 1. Determine the logical display size.
-   - `displaySize` if provided.
-   - Otherwise, the largest finite size from `LayoutBuilder` constraints.
+   - Constrain `displaySize` to the parent's actual layout constraints.
+   - Otherwise, use the largest finite size from `LayoutBuilder`.
    - If either axis is unbounded and no override is provided, throw a
-     descriptive `FlutterError`.
+     descriptive `FlutterError`. Skip the decode for a zero-area box.
 2. Convert to physical pixels:
    `boxWidth = ceil(logicalWidth * devicePixelRatio)`,
    `boxHeight = ceil(logicalHeight * devicePixelRatio)`.
 3. Build a decode target based on `BoxFit`.
-4. Wrap the original provider in `ResizeImage`.
-5. Render with the same `fit`, so `cover` crops the correctly sized bitmap.
+4. Wrap the original provider in `ResizeImage` unless it is already resized
+   or the fit mode needs the original bitmap.
+5. Render in a fixed-size box with the same `fit`, including while loading.
 
 ## Decode target rules
 
@@ -45,9 +46,9 @@ dimensions."
 | Fit | Source size known | Source size unknown |
 |---|---|---|
 | `contain` | fit inside box | fit inside box |
-| `scaleDown` | fit inside box, no upscaling | fit inside box, no upscaling |
-| `cover` | expand box by the cover factor, then fit | box × `coverOverscan`, then fit |
-| `fill` | exact box | exact box |
+| `scaleDown` | no resize | no resize |
+| `cover` | scale the source rectangle to cover the box | box × `coverOverscan`, then fit |
+| `fill` | exact box, clamped per source axis | exact box, clamped per source axis |
 | `fitWidth` | box width × rendered height | fit inside box |
 | `fitHeight` | rendered width × box height | fit inside box |
 | `none` | no resize | no resize |
@@ -55,16 +56,14 @@ dimensions."
 Cover factor:
 
 ```
-sourceAspect = sourceWidth / sourceHeight
-boxAspect    = boxWidth / boxHeight
-factor       = max(sourceAspect / boxAspect, boxAspect / sourceAspect, 1.0)
+scale = max(boxWidth / sourceWidth, boxHeight / sourceHeight)
+targetWidth  = max(boxWidth,  ceil(sourceWidth  × scale))
+targetHeight = max(boxHeight, ceil(sourceHeight × scale))
 ```
 
-The expanded box is `(boxWidth * factor, boxHeight * factor)`. Because the
-source is fitted inside that box, the decoded image covers the original box
-without upscaling. It decodes pixels outside the visible crop, but those
-pixels are necessary to keep the visible region sharp with Flutter's
-built-in `ResizeImage`.
+For example, a 4000 × 3000 image covering a 600 × 600 physical box requests
+an 800 × 600 decode. Flutter crops the extra width when painting. A smaller
+source is not enlarged by the decoder. Integer codec rounding applies.
 
 ## Cache policy
 

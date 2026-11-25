@@ -1,0 +1,19 @@
+name: image_budget
+description: Decode images at display size and keep Flutter's image cache under an explicit byte budget.
+version: 0.1.0-dev
+publish_to: none
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_lints: '>=5.0.0 <7.0.0'
+  flutter_test:
+    sdk: flutter
+
+flutter:

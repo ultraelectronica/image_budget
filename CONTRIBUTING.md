@@ -2,7 +2,7 @@
 
 ## Development setup
 
-Install Flutter stable, then from the package root:
+The package and demo were tested with Flutter 3.50.1. From the package root:
 
 ```sh
 flutter pub get

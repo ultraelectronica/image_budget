@@ -25,8 +25,8 @@ those from Dart.
    exact cover target. Fall back to a documented `coverOverscan` multiplier
    when the source size is unknown.
 4. Use Flutter's existing `ResizeImage` and `ImageCache` instead of a custom
-   codec, isolate, or platform channel. This keeps the package pure Dart,
-   testable headlessly, and compatible with all Flutter platforms.
+   codec, isolate, or platform channel. This keeps the package pure Dart
+   and testable headlessly. Browser runtime decode behavior is unverified.
 5. Report decoded bytes, not process RSS. Add a real-device RSS and frame
    timing follow-up rather than implying that decoded-byte savings equal
    total memory savings.
@@ -37,7 +37,7 @@ those from Dart.
 - `BoxFit.cover` without `sourcePixelSize` may over-decode or upscale
   extreme aspect ratios. This is documented and can be fixed by passing the
   intrinsic size or by a future crop-aware decoder.
-- The cache limit is global. Apps that call `ImageBudget.configure` affect
-  every image in the process, which is why it is opt-in.
+- `ImageBudget.configure` changes the shared Flutter binding cache. Other
+  widgets using that cache are affected too, which is why it is opt-in.
 - The package cannot reduce APK size, engine memory, or leaks. Those remain
   separate projects.

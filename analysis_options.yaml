@@ -1,0 +1,13 @@
+analyzer:
+  exclude:
+    - build/**
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    - always_declare_return_types
+    - avoid_dynamic_calls
+    - avoid_redundant_argument_values
+    - prefer_final_locals
+    - prefer_single_quotes
+    - unawaited_futures

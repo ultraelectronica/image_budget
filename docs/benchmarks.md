@@ -9,10 +9,9 @@ size:
 decodedBytes = image.width * image.height * 4
 ```
 
-This is the raw RGBA bitmap that Flutter holds for a decoded image. It
-excludes row padding, GPU copies, cache bookkeeping, the Flutter engine, and
-Dart heap. Those are real costs too, but they are outside this package's
-scope.
+This is a four-byte-per-pixel estimate based on actual decoded dimensions.
+It excludes row padding, GPU copies, cache bookkeeping, the Flutter engine,
+and the Dart heap.
 
 ## Reproduction
 
@@ -20,12 +19,11 @@ scope.
 flutter test test/decoded_bytes_benchmark_test.dart --reporter expanded
 ```
 
-The test generates a 4000 × 3000 PNG in memory, decodes it once at full size,
-then decodes it again through `ResizeImage` at 1200 × 900, which is a
-400 × 300 logical box at 3× DPR. It disposes each image before measuring the
-next one.
+The test generates a 4000 × 3000 PNG in memory. It compares the full decode,
+a manual `ResizeImage`, and the image rendered by `BudgetedImage` in a
+400 × 300 logical box at 3× DPR. The two resized results must agree.
 
-## Expected result
+## Verified result
 
 | Path | Dimensions | Decoded bytes | Decimal MB | MiB |
 |---|---:|---:|---:|---:|
@@ -35,8 +33,10 @@ next one.
 
 Reduction: **91%** (11.1× smaller).
 
-These numbers are deterministic on any platform because they are pixel
-counts, not timings. The test fails if the decoded dimensions do not match.
+Verified headlessly on Linux with Flutter 3.50.1. The test also verified
+that a 200 × 200 logical `BoxFit.cover` card at 3× DPR decodes the same
+fixture to 800 × 600 (1.92 MB), not 600 × 600. Flutter needs the extra width
+for the paint-time crop. Browser decode behavior was not measured.
 
 ## What this does not prove
 

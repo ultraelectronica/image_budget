@@ -1,0 +1,22 @@
+name: image_budget_example
+description: A scrollable feed comparing stock and budgeted images.
+publish_to: none
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  image_budget:
+    path: ..
+
+dev_dependencies:
+  flutter_lints: '>=5.0.0 <7.0.0'
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/landscape.png
+    - assets/portrait.png
