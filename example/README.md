@@ -1,16 +1,31 @@
 # Image Budget demo
 
-From `example/`, run `flutter run -d chrome` to open the demo or
-`flutter build web` to compile it. Switch between **Stock** (`Image`) and
-**Budgeted** (`BudgetedImage`) while scrolling the same feed. Both modes use
-the same bundled images and the same `BoxFit.cover` crop. Budgeted mode
-supplies each file's intrinsic pixel size and infers the display size from
-the card's tight layout constraints.
+## Run it locally
 
-The feed repeats two synthetic fixtures: a 2400 × 1600 landscape and a
-1600 × 2400 portrait. To regenerate them, run `python3 tool/generate_fixtures.py`.
+From `example/`:
 
-The readout reports Flutter's shared image cache, not total browser memory.
-Changing modes does not clear that cache, and repeated cards reuse the same
-assets. This is a usage demo, not a benchmark. Runtime savings on web have
-not been verified.
+```sh
+flutter build web --no-web-resources-cdn
+python3 -m http.server 8080 --bind 127.0.0.1 --directory build/web
+```
+
+Open `http://127.0.0.1:8080/` in Firefox or Chrome. Skip the build if
+`build/web` already exists. If `flutter` isn't on your `PATH`, use the full
+path, like `~/dev/flutter/bin/flutter`. With Chrome installed,
+`flutter run -d chrome` gives you hot reload.
+
+## What to try
+
+Flip between **Stock** (`Image`) and **Budgeted** (`BudgetedImage`) while
+scrolling the same feed. Both modes use the same images and the same
+`BoxFit.cover` crop. Budgeted mode passes each file's real pixel size and
+takes the display size from the card's tight constraints.
+
+The feed repeats two generated fixtures: a 2400 × 1600 landscape and a
+1600 × 2400 portrait. To regenerate them, run
+`python3 tool/generate_fixtures.py`.
+
+The readout shows Flutter's shared image cache, not total browser memory.
+Switching modes doesn't clear the cache, and repeated cards reuse the same
+assets. It's a usage demo, not a benchmark. Web decode savings aren't
+verified.

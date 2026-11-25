@@ -1,45 +1,39 @@
 # image_budget
 
-**Decode images for their display size and set a budget for Flutter’s image cache.**
+Decode images at display size. Keep Flutter's image cache under a byte budget.
 
-`image_budget` is a small Flutter package for two related jobs:
+`image_budget` does two jobs:
 
-1. Decode images at the size they actually occupy on screen, instead of at
-   their full source resolution.
-2. Put an explicit byte limit on Flutter's shared decoded-image cache, only
-   when the app asks for one.
+1. Decode images at the size they're drawn, not their full source resolution.
+2. Set a byte limit on Flutter's shared decoded-image cache, if you want one.
 
-Status: `0.1.0-dev`. Use a local path dependency while the package is unpublished.
+Status: `0.1.0-dev`. Not on pub.dev yet, so use a path dependency.
 
 ## The problem
 
-A decoded image costs roughly:
+A decoded image costs about:
 
 ```
 width × height × 4 bytes
 ```
 
-At four bytes per pixel, a 4000 × 3000 photo represents **48.00 MB** of
-decoded pixel data. In a 400 × 300 logical card at 3× device pixel ratio,
-the same photo needs **4.32 MB** at 1200 × 900. That comparison assumes
-matching aspect ratios. A `BoxFit.cover` crop may need extra pixels along
-one axis. These figures are pixel estimates, not app RAM measurements.
+A 4000 × 3000 photo is 48 MB of pixels. In a 400 × 300 card at 3× device
+pixel ratio (DPR), you only need 1200 × 900, or 4.32 MB. That assumes
+matching aspect ratios. A `BoxFit.cover` crop can need extra pixels on one
+axis. Either way, these are pixel estimates, not app RAM measurements.
 
-Flutter can already do the right thing with `ResizeImage` and `cacheWidth` /
-`cacheHeight`. The hard parts are:
+Flutter already has `ResizeImage`, `cacheWidth`, and `cacheHeight`. The
+annoying parts are:
 
-- computing the right target size from layout constraints and device pixel
-  ratio,
+- working out the target size from layout constraints and DPR,
 - keeping `BoxFit.cover` crops sharp,
-- and making the cache limit explicit instead of relying on the 100 MiB
-  default.
+- and picking a cache limit instead of leaving the 100 MiB default alone.
 
-This package packages those decisions into one widget and one opt-in cache
-configuration.
+This package does that bookkeeping for you.
 
 ## Install
 
-Until the first pub.dev release, use a path dependency:
+Not on pub.dev yet. Use a path dependency:
 
 ```yaml
 dependencies:
@@ -47,7 +41,7 @@ dependencies:
     path: ../image_budget
 ```
 
-Planned pub.dev install:
+Once it's published:
 
 ```sh
 flutter pub add image_budget
@@ -62,7 +56,7 @@ import 'package:image_budget/image_budget.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Optional. Without this, Flutter's default image cache limits stay active.
+  // Optional. Without it, Flutter's default cache limits stay in place.
   ImageBudget.configure(
     maxCachedBytes: 48 << 20, // 48 MiB
     maxEntries: 200,
@@ -81,7 +75,7 @@ class PhotoCard extends StatelessWidget {
       height: 300,
       child: BudgetedImage(
         image: const AssetImage('assets/photo.jpg'),
-        // The intrinsic aspect ratio lets cover choose the right decode bounds.
+        // Gives cover the real aspect ratio for its decode bounds.
         sourcePixelSize: const Size(4000, 3000),
         fit: BoxFit.cover,
         semanticLabel: 'A sample photo',
@@ -91,28 +85,22 @@ class PhotoCard extends StatelessWidget {
 }
 ```
 
-`BudgetedImage` measures its parent with `LayoutBuilder` when `displaySize`
-is not provided. In an unbounded context such as a bare `Column`, provide
-`displaySize` or wrap the widget in a bounded box.
+`BudgetedImage` measures its parent with `LayoutBuilder` when you don't pass
+`displaySize`. In an unbounded parent, like a bare `Column`, pass
+`displaySize` or wrap the image in a bounded box.
 
 ## API
 
 ### `BudgetedImage`
 
-| Parameter | Meaning |
+| Parameter | What it does |
 |---|---|
-| `image` | A Flutter `ImageProvider`, such as an asset, network, file, or memory image. An existing `ResizeImage` is left unchanged. |
-| `displaySize` | Optional logical size request, clamped to the parent's constraints. Without it, both axes must be bounded. |
-| `fit` | Paint fit, defaulting to `BoxFit.contain`. Also determines the decode bounds. |
-| `sourcePixelSize` | Optional intrinsic pixel dimensions. The aspect ratio is used for `cover`, `fitWidth`, and `fitHeight`. |
-| `coverOverscan` | Fallback multiplier when `cover` is used without `sourcePixelSize`. Default `2.0` |
-| `alignment` | Passed to `Image` |
-| `filterQuality` | Passed to `Image` |
-| `semanticLabel` | Passed to `Image` |
-| `excludeFromSemantics` | Passed to `Image` |
-| `frameBuilder` | Passed to `Image` |
-| `loadingBuilder` | Passed to `Image` |
-| `errorBuilder` | Passed to `Image` |
+| `image` | The `ImageProvider` to decode: asset, network, file, memory, whatever. An existing `ResizeImage` is left alone. |
+| `displaySize` | Logical size to request, clamped to the parent's constraints. Without it, both axes must be bounded. |
+| `fit` | How the image is painted, and how the decode bounds are picked. Defaults to `BoxFit.contain`. |
+| `sourcePixelSize` | The image's real pixel size. Its aspect ratio makes `cover`, `fitWidth`, and `fitHeight` exact. |
+| `coverOverscan` | Multiplier for the decode box when `cover` has no `sourcePixelSize`. Default `2.0`. |
+| `alignment`, `filterQuality`, `semanticLabel`, `excludeFromSemantics`, `frameBuilder`, `loadingBuilder`, `errorBuilder` | Passed straight to `Image`. |
 
 ### `ImageBudget`
 
@@ -126,84 +114,86 @@ final stats = ImageBudget.stats;
 print('${stats.cachedBytes} cached bytes');
 print('${stats.liveImages} live images');
 
-ImageBudget.clear(); // Clear cached images. Live images stay alive.
-ImageBudget.reset(); // Restore the cache limits that existed before configure().
+ImageBudget.clear(); // Drops cached images. Live ones stay alive.
+ImageBudget.reset(); // Restores the limits from before configure().
 ```
 
-`configure` explicitly changes `PaintingBinding.instance.imageCache`, the
-shared cache for standard providers on the current Flutter binding. It is
-safe to call more than once. `reset()` restores the original limits, not the
-original cache contents.
+`configure` needs at least one of the two limits. It changes
+`PaintingBinding.instance.imageCache`, the cache shared by standard providers
+on the current binding. Calling it again applies the new limits. `reset()`
+restores the old limits, not the old contents, so lowering a limit can evict
+entries.
 
 `ImageBudget.stats` reports:
 
-- `cachedBytes`: bytes held by the image cache,
-- `cachedEntries`: number of cached entries,
-- `liveImages`: images still referenced by widgets,
-- `pendingImages`: images currently loading,
-- `maxCachedBytes`: configured cache byte limit,
-- `maxEntries`: configured entry limit.
+- `cachedBytes` and `cachedEntries`: what the cache is holding,
+- `liveImages`: images widgets still reference,
+- `pendingImages`: images still loading,
+- `maxCachedBytes` and `maxEntries`: your limits,
+- `byteUsage`: fraction of the byte budget in use, 0 to 1,
+- `isOverBudget`: true when either limit is exceeded.
+
+`decodedBytesFor(image)` returns `width * height * 4` for a decoded
+`ui.Image`. Handy for logging.
 
 ## How sizing works
 
-For a logical display size `(w, h)` and device pixel ratio `dpr`:
+For a logical size `(w, h)` and device pixel ratio `dpr`:
 
 ```
 box = (ceil(w * dpr), ceil(h * dpr))
 ```
 
-The decode target depends on `fit`:
+What gets decoded depends on `fit`:
 
-- **contain**: fit inside `box`, preserving aspect ratio.
-- **cover**: with `sourcePixelSize`, scale the source rectangle until it
-  covers `box` on both axes. The longer axis can exceed the visible box so
-  Flutter can crop without magnifying the retained bitmap, if the source
-  has enough pixels. Without a source size, use `box × coverOverscan`.
-- **fill**: request the box dimensions directly, clamped to the source.
-- **fitWidth / fitHeight**: use the corresponding axis and source aspect
-  ratio when known. Otherwise, fall back to fitting inside `box`.
-- **none / scaleDown**: leave the provider unchanged to preserve
-  intrinsic-size painting behavior.
+- **contain**: fit inside the box, keeping the aspect ratio.
+- **cover**: with `sourcePixelSize`, scale the source until it covers the
+  box. The longer axis can exceed the box, so Flutter can crop without
+  stretching the bitmap. Without a source size, fit inside a box scaled by
+  `coverOverscan`.
+- **fill**: decode exactly at the box size, capped by the source.
+- **fitWidth / fitHeight**: use the matching axis plus the source aspect
+  ratio. Without a source size, fit inside the box.
+- **none / scaleDown**: no resize, since these paint at the bitmap's
+  natural size.
 
-Decoding uses `ResizeImage` with `allowUpscaling: false`, so a small source
-is never decoded into a larger bitmap.
+When it resizes, the package uses `ResizeImage` with `allowUpscaling:
+false`, so a small source stays small. A `ResizeImage` you pass in is left
+alone.
 
-### Cover crops at paint time
+### Cover crops
 
-With an accurate `sourcePixelSize`, the decode target leaves enough pixels
-for the visible region when the source resolution allows it. The codec still
-decodes pixels outside the visible crop. This is not region-of-interest decoding.
+With an accurate `sourcePixelSize`, the decoded bitmap has enough pixels for
+the visible crop, as long as the source has them. The codec still decodes
+pixels outside the crop. This isn't region-of-interest decoding.
 
-Without `sourcePixelSize`, `coverOverscan` doubles the requested bounds on
-each axis by default, not necessarily the decoded dimensions. Extreme
-aspect ratios may still be magnified at paint time. Pass the source size
-when available to avoid guessing.
+Without `sourcePixelSize`, the default `coverOverscan` doubles the requested
+box on each axis. That's a guess. Extreme aspect ratios can still get
+upscaled when painted. Pass the real size when you have it.
 
-## What this does and does not save
+## What this saves
 
 **Saves:**
 
-- decoded pixel memory for images that are displayed smaller than their
-  source,
-- bytes retained in Flutter's `ImageCache` when an opt-in limit evicts entries.
+- decoded pixels for images shown smaller than their source,
+- cache bytes evicted by your limit.
 
-**Does not save:**
+**Doesn't save:**
 
 - APK or IPA size,
-- the Flutter engine baseline,
+- the engine baseline,
 - Dart heap, GPU buffers, platform-view textures, or other app memory,
-- memory held by images you already decoded at full size elsewhere.
+- images you already decoded at full size somewhere else.
 
-An image stream can remain live after cache eviction. `liveImages` counts
-tracked streams, not bytes. The limit is a cache policy, not a total RAM
-or peak decode-memory guarantee. Runtime decode savings on web depend on the
-provider and browser and have not been benchmarked.
+Eviction doesn't kill an image a widget still uses. `liveImages` counts
+streams, not bytes. The byte limit is a cache policy, not a cap on total RAM
+or peak decode memory. On web, savings depend on the provider and browser.
+Nobody has benchmarked that here.
 
-A smaller cache can also cause more redecodes when the user scrolls back.
-That can show up as jank. Tune the limit with a profile build on a real
-device.
+A tight cache also means more redecodes when you scroll back, which can show
+up as jank. Tune it in a profile build on a real device.
 
-## Documentation
+## Docs
 
 - [Stock vs. budgeted cover demo](example/README.md)
 - [Architecture](docs/architecture.md)
@@ -217,16 +207,15 @@ flutter analyze
 flutter test
 ```
 
-The test suite generates a 4000 × 3000 PNG in memory and compares the
-decoded pixel bytes of a full decode with a display-sized decode. It reports
-decoded bytes, not process RSS.
+The tests build a 4000 × 3000 PNG in memory and compare a full decode with a
+display-sized one. They report decoded bytes, not process RSS.
 
 ## Roadmap
 
-- Investigate decoding only the visible source region for `BoxFit.cover`.
-- Quantized decode sizes to reduce cache churn during size animations.
-- Optional DevTools extension for cache and live-image stats.
-- A small benchmark harness for scroll jank on a physical Android device.
+- Region-of-interest decoding for `BoxFit.cover`.
+- Quantized decode sizes, so layout animations don't churn the cache.
+- Maybe a DevTools extension for cache and live-image stats.
+- A scroll-jank benchmark on a real Android device.
 
 ## License
 

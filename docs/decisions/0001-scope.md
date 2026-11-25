@@ -5,39 +5,35 @@
 
 ## Context
 
-Flutter apps often decode full-resolution photos into small widgets. The
-decoded bitmap costs `width × height × 4` bytes, so a 12 MP photo costs about
-48 MB even when displayed in a small card. Flutter provides `ResizeImage`,
-`cacheWidth`, and `cacheHeight`, but the developer must compute the target
-size, handle `BoxFit`, and decide on a cache budget.
+Flutter apps decode full-res photos into small widgets all the time. A decoded
+bitmap costs `width × height × 4` bytes, so a 12 MP photo is about 48 MB even
+in a tiny card. Flutter gives you `ResizeImage`, `cacheWidth`, and
+`cacheHeight`, but you still have to work out the target size, handle
+`BoxFit`, and pick a cache budget.
 
-There is also a broader memory problem: engine baseline, Dart heap, GPU
-buffers, platform-view textures, and leaks. A package cannot control all of
-those from Dart.
+There's a bigger memory problem too: engine baseline, Dart heap, GPU buffers,
+platform-view textures, and leaks. A Dart package can't fix all of that.
 
 ## Decision
 
-1. Scope v0.1 to **decoded image sizing** and **Flutter's shared image
-   cache**. Do not claim total app memory reduction.
-2. Make cache configuration **explicit and opt-in**. Do not silently change
-   global cache limits when a widget is constructed.
-3. Support `BoxFit.cover` in v0.1. Use an optional `sourcePixelSize` for an
-   exact cover target. Fall back to a documented `coverOverscan` multiplier
-   when the source size is unknown.
-4. Use Flutter's existing `ResizeImage` and `ImageCache` instead of a custom
-   codec, isolate, or platform channel. This keeps the package pure Dart
-   and testable headlessly. Browser runtime decode behavior is unverified.
-5. Report decoded bytes, not process RSS. Add a real-device RSS and frame
-   timing follow-up rather than implying that decoded-byte savings equal
-   total memory savings.
+1. v0.1 covers decoded image sizing and Flutter's shared image cache. It
+   doesn't claim total app memory savings.
+2. Cache configuration is explicit and opt-in. Building a widget never
+   changes global cache limits.
+3. v0.1 supports `BoxFit.cover`. An optional `sourcePixelSize` gives an exact
+   target. Without it, use the documented `coverOverscan` multiplier.
+4. Use Flutter's `ResizeImage` and `ImageCache`. No custom codec, isolate, or
+   platform channel. That keeps the package pure Dart and testable
+   headlessly. Browser decode behavior is unverified.
+5. Report decoded bytes, not process RSS. Add a real-device RSS and
+   frame-timing follow-up instead of implying the two are the same.
 
 ## Consequences
 
-- The package is small and easy to audit.
-- `BoxFit.cover` without `sourcePixelSize` may over-decode or upscale
-  extreme aspect ratios. This is documented and can be fixed by passing the
-  intrinsic size or by a future crop-aware decoder.
-- `ImageBudget.configure` changes the shared Flutter binding cache. Other
-  widgets using that cache are affected too, which is why it is opt-in.
-- The package cannot reduce APK size, engine memory, or leaks. Those remain
-  separate projects.
+- The package stays small and easy to audit.
+- `BoxFit.cover` without `sourcePixelSize` can over-decode or upscale extreme
+  aspect ratios. Pass the intrinsic size, or wait for a crop-aware decoder.
+- `ImageBudget.configure` changes the shared binding cache, so other widgets
+  are affected too. That's why it's opt-in.
+- APK size, engine memory, and leaks are out of scope. Those are separate
+  projects.
