@@ -198,6 +198,7 @@ up as jank. Tune it in a profile build on a real device.
 - [Stock vs. budgeted cover demo](example/README.md)
 - [Architecture](docs/architecture.md)
 - [Benchmark method](docs/benchmarks.md)
+- [Benchmark harness](benchmark/README.md)
 - [Scope decision](docs/decisions/0001-scope.md)
 
 ## Development
@@ -205,10 +206,14 @@ up as jank. Tune it in a profile build on a real device.
 ```sh
 flutter analyze
 flutter test
+
+# Decoded bytes, decode time, sizing overhead, and cache retention.
+flutter test benchmark/image_budget_benchmark_test.dart --reporter expanded
 ```
 
 The tests build a 4000 × 3000 PNG in memory and compare a full decode with a
-display-sized one. They report decoded bytes, not process RSS.
+display-sized one. They report decoded bytes, not process RSS. The benchmark
+writes `benchmark/results/latest.json` and `benchmark/results/latest.md`.
 
 ## Roadmap
 

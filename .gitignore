@@ -23,3 +23,6 @@ example/.dart_tool/
 
 # OS
 .DS_Store
+
+# Benchmark output
+benchmark/results/

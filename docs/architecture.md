@@ -110,6 +110,8 @@ check: display-sized decodes and a cache byte limit you set.
   dimensions without depending on frame timing.
 - Cache tests set a tiny byte limit, resolve images, and check eviction and
   reset.
-- The benchmark test resolves the provider, checks the decoded `ui.Image`
-  dimensions, and compares `width * height * 4` for a full-size and a
-  1200 × 900 decode.
+- `test/decoded_bytes_benchmark_test.dart` resolves the provider, checks the
+  decoded `ui.Image` dimensions, and compares `width * height * 4` for a
+  full-size and a 1200 × 900 decode.
+- `benchmark/image_budget_benchmark_test.dart` measures 19 layout scenarios,
+  `computeDecodeTarget` overhead, and cache retention under several limits.
