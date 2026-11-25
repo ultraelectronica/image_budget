@@ -20,8 +20,9 @@ platform-view textures, and leaks. A Dart package can't fix all of that.
    doesn't claim total app memory savings.
 2. Cache configuration is explicit and opt-in. Building a widget never
    changes global cache limits.
-3. v0.1 supports `BoxFit.cover`. An optional `sourcePixelSize` gives an exact
-   target. Without it, use the documented `coverOverscan` multiplier.
+3. v0.1 supports every `BoxFit`. An optional `sourcePixelSize` gives an exact
+   target. Without it, `cover` uses the documented `coverOverscan`
+   multiplier. See decision 0002 for JPEG/PNG hints and variants.
 4. Use Flutter's `ResizeImage` and `ImageCache`. No custom codec, isolate, or
    platform channel. That keeps the package pure Dart and testable
    headlessly. Browser decode behavior is unverified.

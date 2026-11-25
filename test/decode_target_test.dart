@@ -73,6 +73,140 @@ void main() {
         expect(target.resizes, isFalse, reason: '$fit');
       }
     });
+
+    test('quality margin adds headroom and rejects values below 1', () {
+      expect(
+        computeDecodeTarget(
+          logicalSize: const Size(400, 300),
+          devicePixelRatio: 3,
+          fit: BoxFit.contain,
+          sourcePixelSize: const Size(4000, 3000),
+          qualityMargin: 1.25,
+        ),
+        const DecodeTarget(width: 1500, height: 1125),
+      );
+      expect(
+        () => computeDecodeTarget(
+          logicalSize: const Size(400, 300),
+          devicePixelRatio: 3,
+          fit: BoxFit.contain,
+          qualityMargin: 0.9,
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('PNG ignores the quality margin', () {
+      expect(
+        computeDecodeTarget(
+          logicalSize: const Size(400, 300),
+          devicePixelRatio: 3,
+          fit: BoxFit.contain,
+          sourcePixelSize: const Size(4000, 3000),
+          sourceFormat: ImageSourceFormat.png,
+          qualityMargin: 1.25,
+        ),
+        const DecodeTarget(width: 1200, height: 900),
+      );
+    });
+
+    test('JPEG snaps up to a native 1/8 scale', () {
+      DecodeTarget target(double margin) => computeDecodeTarget(
+            logicalSize: const Size(400, 300),
+            devicePixelRatio: 3,
+            fit: BoxFit.contain,
+            sourcePixelSize: const Size(4000, 3000),
+            sourceFormat: ImageSourceFormat.jpeg,
+            qualityMargin: margin,
+          );
+
+      expect(target(1), const DecodeTarget(width: 1500, height: 1125));
+      expect(target(1.25), const DecodeTarget(width: 1500, height: 1125));
+      expect(
+        computeDecodeTarget(
+          logicalSize: const Size(400, 300),
+          devicePixelRatio: 2.5,
+          fit: BoxFit.contain,
+          sourcePixelSize: const Size(4000, 3000),
+          sourceFormat: ImageSourceFormat.jpeg,
+          qualityMargin: 1,
+        ),
+        const DecodeTarget(width: 1000, height: 750),
+      );
+      expect(
+        computeDecodeTarget(
+          logicalSize: const Size(400, 300),
+          devicePixelRatio: 2.5,
+          fit: BoxFit.contain,
+          sourcePixelSize: const Size(4000, 3000),
+          sourceFormat: ImageSourceFormat.jpeg,
+          qualityMargin: 1.25,
+        ),
+        const DecodeTarget(width: 1500, height: 1125),
+      );
+    });
+
+    test('JPEG without a source size keeps the margin but does not round', () {
+      expect(
+        computeDecodeTarget(
+          logicalSize: const Size(400, 300),
+          devicePixelRatio: 3,
+          fit: BoxFit.contain,
+          sourceFormat: ImageSourceFormat.jpeg,
+          qualityMargin: 1.25,
+          decodeSizeStep: 32,
+        ),
+        const DecodeTarget(width: 1500, height: 1125),
+      );
+    });
+
+    test('quantizes targets without changing the source request policy', () {
+      expect(
+        computeDecodeTarget(
+          logicalSize: const Size(400, 300),
+          devicePixelRatio: 3,
+          fit: BoxFit.contain,
+          sourcePixelSize: const Size(4000, 3000),
+          sourceFormat: ImageSourceFormat.png,
+          decodeSizeStep: 32,
+        ),
+        const DecodeTarget(width: 1216, height: 928),
+      );
+      expect(
+        computeDecodeTarget(
+          logicalSize: const Size(400, 300),
+          devicePixelRatio: 3,
+          fit: BoxFit.contain,
+          sourcePixelSize: const Size(1200, 900),
+          sourceFormat: ImageSourceFormat.png,
+          decodeSizeStep: 32,
+        ),
+        const DecodeTarget(width: 1216, height: 928),
+      );
+      expect(
+        () => computeDecodeTarget(
+          logicalSize: const Size(400, 300),
+          devicePixelRatio: 3,
+          fit: BoxFit.contain,
+          decodeSizeStep: 0,
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('quantizes after the quality margin for unknown formats', () {
+      expect(
+        computeDecodeTarget(
+          logicalSize: const Size(400, 300),
+          devicePixelRatio: 3,
+          fit: BoxFit.contain,
+          sourcePixelSize: const Size(4000, 3000),
+          qualityMargin: 1.25,
+          decodeSizeStep: 32,
+        ),
+        const DecodeTarget(width: 1504, height: 1152),
+      );
+    });
   });
 
   testWidgets('uses actual constrained size and updates when DPR changes', (
@@ -93,6 +227,7 @@ void main() {
                   displaySize: const Size(200, 100),
                   fit: BoxFit.cover,
                   sourcePixelSize: const Size(1000, 1000),
+                  qualityMargin: 1,
                   errorBuilder: (context, error, stackTrace) =>
                       const SizedBox.shrink(),
                 ),

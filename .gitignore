@@ -26,3 +26,4 @@ example/.dart_tool/
 
 # Benchmark output
 benchmark/results/
+benchmark/.cache/

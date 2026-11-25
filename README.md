@@ -77,6 +77,7 @@ class PhotoCard extends StatelessWidget {
         image: const AssetImage('assets/photo.jpg'),
         // Gives cover the real aspect ratio for its decode bounds.
         sourcePixelSize: const Size(4000, 3000),
+        sourceFormat: ImageSourceFormat.jpeg,
         fit: BoxFit.cover,
         semanticLabel: 'A sample photo',
       ),
@@ -84,6 +85,11 @@ class PhotoCard extends StatelessWidget {
   }
 }
 ```
+
+Use `ImageSourceFormat.jpeg` for JPEG and `ImageSourceFormat.png` for PNG.
+`auto` is a fallback for unknown formats: it applies `qualityMargin` but
+does not assume a native codec scale. Without the PNG hint, a PNG source
+gets that extra margin too.
 
 `BudgetedImage` measures its parent with `LayoutBuilder` when you don't pass
 `displaySize`. In an unbounded parent, like a bare `Column`, pass
@@ -100,7 +106,78 @@ class PhotoCard extends StatelessWidget {
 | `fit` | How the image is painted, and how the decode bounds are picked. Defaults to `BoxFit.contain`. |
 | `sourcePixelSize` | The image's real pixel size. Its aspect ratio makes `cover`, `fitWidth`, and `fitHeight` exact. |
 | `coverOverscan` | Multiplier for the decode box when `cover` has no `sourcePixelSize`. Default `2.0`. |
+| `sourceFormat` | Codec hint: `auto` (default), `jpeg`, or `png`. JPEG snaps to native 1/8 scales; PNG skips the quality margin. |
+| `qualityMargin` | Extra decode headroom. Default `1.25`. Applied to `auto` and `jpeg`, ignored for `png`. |
+| `decodeSizeStep` | Rounds the target up to a multiple of physical pixels. Default `1`, which is exact. Ignored for JPEG. |
+| `imageVariants` | Optional pre-sized sources. The smallest variant that covers the target wins. |
+| `selectedVariant` | Forces one variant instead of automatic selection. |
 | `alignment`, `filterQuality`, `semanticLabel`, `excludeFromSemantics`, `frameBuilder`, `loadingBuilder`, `errorBuilder` | Passed straight to `Image`. |
+
+### JPEG, PNG, and pre-sized variants
+
+`sourceFormat` tells the sizer what the codec will do:
+
+- **`jpeg`**: with `sourcePixelSize`, snap up to the next native 1/8 source
+  scale. The codec decodes fewer pixels.
+- **`png`**: ignore `qualityMargin` and ask for the exact target. The codec
+  still has to decode the full PNG, then resize.
+- **`auto`**: apply the margin without assuming a native scale. Safe for
+  unknown formats, but over-decodes PNG by the margin.
+
+Pre-sized PNG variants are the PNG time win. Generate width buckets:
+
+```sh
+dart run tool/generate_variants.dart assets/photo.png --widths 400,800,1200
+```
+
+The tool writes `photo_400w.png`, `photo_800w.png`, and so on, then prints a
+Dart snippet. It uses the `image` package; add it to your dev dependencies
+if you run the tool outside this repository. Use the variants directly:
+
+```dart
+BudgetedImage(
+  image: const AssetImage('assets/photo_1200w.png'),
+  sourcePixelSize: const Size(1200, 900),
+  imageVariants: [
+    ImageVariant(
+      image: const AssetImage('assets/photo_400w.png'),
+      pixelSize: const Size(400, 300),
+      label: '400w',
+    ),
+    ImageVariant(
+      image: const AssetImage('assets/photo_800w.png'),
+      pixelSize: const Size(800, 600),
+      label: '800w',
+    ),
+    ImageVariant(
+      image: const AssetImage('assets/photo_1200w.png'),
+      pixelSize: const Size(1200, 900),
+      label: '1200w',
+    ),
+  ],
+  sourceFormat: ImageSourceFormat.png,
+  qualityMargin: 1,
+  fit: BoxFit.cover,
+)
+```
+
+Pass the real `pixelSize` for every variant; the widget validates it.
+`image` is the fallback when `imageVariants` is empty. If no variant covers
+the target, the largest one is used. `selectedVariant` forces one source.
+`BoxFit.none` and `BoxFit.scaleDown` keep the largest variant because they
+paint at natural size.
+
+### Resize animations
+
+`decodeSizeStep` groups nearby layout sizes. The default is `1`, so every
+pixel size is exact. On the desktop session benchmark, step `32` cut a
+100-frame resize animation from 41 unique sizes and 41 decodes to 5 and 5,
+and reduced peak cache bytes from 49.5 MiB to 6.27 MiB. The same step did not
+show a reliable win on a static image feed, and it over-decodes small 1×
+targets. Use it for layouts that resize continuously, not as a blanket
+default. On a 60 Hz phone the step 32 path still retained more bytes and
+used more raster time than one full-size decode at a small card size. Treat
+it as a cache-pressure tool, not an automatic frame-time win.
 
 ### `ImageBudget`
 
@@ -161,6 +238,16 @@ When it resizes, the package uses `ResizeImage` with `allowUpscaling:
 false`, so a small source stays small. A `ResizeImage` you pass in is left
 alone.
 
+Three options adjust the final target:
+
+- `qualityMargin` multiplies the target before the codec sees it. It is on by
+  default for `auto` and `jpeg`. PNG ignores it because the PNG path does not
+  round the request down.
+- `sourceFormat: jpeg` snaps up to the next native 1/8 source scale, such as
+  3/8 or 1/2. This is the JPEG decode-time win.
+- `decodeSizeStep` rounds up to a multiple of physical pixels. It is off by
+  default and ignored for JPEG.
+
 ### Cover crops
 
 With an accurate `sourcePixelSize`, the decoded bitmap has enough pixels for
@@ -176,6 +263,8 @@ upscaled when painted. Pass the real size when you have it.
 **Saves:**
 
 - decoded pixels for images shown smaller than their source,
+- cold decode time for JPEG with a known source size,
+- cold decode time for PNG when you ship pre-sized variants,
 - cache bytes evicted by your limit.
 
 **Doesn't save:**
@@ -184,6 +273,8 @@ upscaled when painted. Pass the real size when you have it.
 - the engine baseline,
 - Dart heap, GPU buffers, platform-view textures, or other app memory,
 - images you already decoded at full size somewhere else.
+- cold decode time for PNG resized from the original file. The codec decodes
+  the full PNG, then resizes. Use variants when that matters.
 
 Eviction doesn't kill an image a widget still uses. `liveImages` counts
 streams, not bytes. The byte limit is a cache policy, not a cap on total RAM
@@ -193,6 +284,19 @@ Nobody has benchmarked that here.
 A tight cache also means more redecodes when you scroll back, which can show
 up as jank. Tune it in a profile build on a real device.
 
+The desktop benchmark measured a 4000 × 3000 JPEG in a 400 × 300 card at 3×
+as 1500 × 1125 (6.44 MiB) and 61 ms, versus 45.78 MiB and 154 ms for the full
+decode. The same PNG case decoded 4.12 MiB but took 133 ms versus 105 ms for
+the full source. A 1200 × 900 pre-sized PNG decoded 4.12 MiB in 4.9 ms
+versus 45.78 MiB and 39.3 ms for the 4000 × 3000 original. These are
+`flutter test` JIT numbers on one laptop, not a release-mode promise. See
+[docs/benchmarks.md](docs/benchmarks.md).
+
+A separate 60 Hz Android run measured exact PNG targets during a resize at
+99.90 MiB, step 32 kept 27.75 MiB, and stock kept 14.65 MiB. Budgeted JPEG
+kept 9.38 MiB versus 14.65 MiB for stock JPEG. Cache bytes are the reliable
+part of that run. Frame times moved with display mode and load.
+
 ## Docs
 
 - [Stock vs. budgeted cover demo](example/README.md)
@@ -200,6 +304,7 @@ up as jank. Tune it in a profile build on a real device.
 - [Benchmark method](docs/benchmarks.md)
 - [Benchmark harness](benchmark/README.md)
 - [Scope decision](docs/decisions/0001-scope.md)
+- [Codec and quantization decision](docs/decisions/0002-jpeg-png-and-quantization.md)
 
 ## Development
 
@@ -209,18 +314,33 @@ flutter test
 
 # Decoded bytes, decode time, sizing overhead, and cache retention.
 flutter test benchmark/image_budget_benchmark_test.dart --reporter expanded
+
+# Pre-sized PNG, static feeds, and resize animations.
+flutter test benchmark/session_benchmark_test.dart --reporter expanded
 ```
 
-The tests build a 4000 × 3000 PNG in memory and compare a full decode with a
-display-sized one. They report decoded bytes, not process RSS. The benchmark
-writes `benchmark/results/latest.json` and `benchmark/results/latest.md`.
+The tests use synthetic 4000 × 3000 PNG fixtures and generated JPEG fixtures,
+then compare full decodes with display-sized ones. They report decoded bytes,
+not process RSS. The benchmark writes `benchmark/results/latest.json` and
+`benchmark/results/latest.md`. The session benchmark writes `session.json`
+and `session.md`.
+
+For the Android profile pass:
+
+```sh
+cd example
+flutter run --profile --dart-define=IMAGE_BUDGET_BENCH=true
+```
+
+The app prints one `IMAGE_BUDGET_BENCH` line per mode. Frame timings are
+diagnostic, not a release-mode promise.
 
 ## Roadmap
 
 - Region-of-interest decoding for `BoxFit.cover`.
-- Quantized decode sizes, so layout animations don't churn the cache.
 - Maybe a DevTools extension for cache and live-image stats.
-- A scroll-jank benchmark on a real Android device.
+- WebP and AVIF scaled-decode support.
+- A wider device matrix for the profile benchmark.
 
 ## License
 

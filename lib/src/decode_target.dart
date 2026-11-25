@@ -4,6 +4,8 @@ import 'dart:ui' show Size;
 import 'package:flutter/foundation.dart' show immutable;
 import 'package:flutter/painting.dart' show BoxFit, ResizeImagePolicy;
 
+import 'image_source_format.dart';
+
 /// The target dimensions and resize policy for one decoded image.
 @immutable
 class DecodeTarget {
@@ -57,70 +59,193 @@ class DecodeTarget {
 /// [coverOverscan] is used only for [BoxFit.cover] without a source size. It
 /// expands the target box so common photo aspect ratios can be cropped
 /// without upscaling. Values below 1 are rejected.
+///
+/// [qualityMargin] adds headroom so a codec that rounds a resize request down
+/// still has enough pixels. It is applied for [ImageSourceFormat.auto] and
+/// [ImageSourceFormat.jpeg], and ignored for [ImageSourceFormat.png]. Values
+/// below 1 are rejected.
+///
+/// [sourceFormat] selects codec-aware rounding. For JPEG with a known source
+/// size, the result is snapped up to a native 1/8 decode scale. For PNG, the
+/// exact target is returned. For [ImageSourceFormat.auto], only the quality
+/// margin is applied.
+///
+/// [decodeSizeStep] rounds the final target up to a multiple of this many
+/// physical pixels. It is skipped for JPEG sources because native scales
+/// already provide a small set of cache-friendly sizes, and an unknown source
+/// size makes quantizing unsafe. Values below 1 are rejected.
 DecodeTarget computeDecodeTarget({
   required Size logicalSize,
   required double devicePixelRatio,
   required BoxFit fit,
   Size? sourcePixelSize,
   double coverOverscan = 2.0,
+  double qualityMargin = 1.0,
+  ImageSourceFormat sourceFormat = ImageSourceFormat.auto,
+  int decodeSizeStep = 1,
 }) {
   _checkPositive(logicalSize.width, 'logicalSize.width');
   _checkPositive(logicalSize.height, 'logicalSize.height');
   _checkPositive(devicePixelRatio, 'devicePixelRatio');
+  _checkQualityMargin(qualityMargin);
+  _checkDecodeSizeStep(decodeSizeStep);
 
   final source = _normalizedSource(sourcePixelSize);
   final boxWidth = math.max(1, (logicalSize.width * devicePixelRatio).ceil());
   final boxHeight = math.max(1, (logicalSize.height * devicePixelRatio).ceil());
 
-  switch (fit) {
-    case BoxFit.fill:
-      return DecodeTarget(
+  final target = switch (fit) {
+    BoxFit.fill => DecodeTarget(
         width: boxWidth,
         height: boxHeight,
         policy: ResizeImagePolicy.exact,
-      );
-
-    case BoxFit.none:
-    case BoxFit.scaleDown:
+      ),
+    BoxFit.none ||
+    BoxFit.scaleDown =>
       // These fits use the decoded bitmap's natural size during painting.
-      return const DecodeTarget();
+      const DecodeTarget(),
+    BoxFit.contain => DecodeTarget(width: boxWidth, height: boxHeight),
+    BoxFit.cover => _coverTarget(
+        boxWidth: boxWidth,
+        boxHeight: boxHeight,
+        source: source,
+        coverOverscan: coverOverscan,
+      ),
+    BoxFit.fitWidth => _fitWidthTarget(
+        boxWidth: boxWidth,
+        source: source,
+        boxHeight: boxHeight,
+      ),
+    BoxFit.fitHeight => _fitHeightTarget(
+        boxHeight: boxHeight,
+        source: source,
+        boxWidth: boxWidth,
+      ),
+  };
 
-    case BoxFit.contain:
-      return DecodeTarget(width: boxWidth, height: boxHeight);
+  return _refineTarget(
+    target,
+    source: source,
+    sourceFormat: sourceFormat,
+    qualityMargin: qualityMargin,
+    decodeSizeStep: decodeSizeStep,
+  );
+}
 
-    case BoxFit.cover:
-      if (source != null) {
-        final scale =
-            math.max(boxWidth / source.width, boxHeight / source.height);
-        return DecodeTarget(
-          width: math.max(boxWidth, (source.width * scale).ceil()),
-          height: math.max(boxHeight, (source.height * scale).ceil()),
-        );
-      }
-      _checkCoverOverscan(coverOverscan);
-      return DecodeTarget(
-        width: math.max(1, (boxWidth * coverOverscan).ceil()),
-        height: math.max(1, (boxHeight * coverOverscan).ceil()),
-      );
-
-    case BoxFit.fitWidth:
-      if (source != null) {
-        return DecodeTarget(
-          width: boxWidth,
-          height: math.max(1, (boxWidth * source.height / source.width).ceil()),
-        );
-      }
-      return DecodeTarget(width: boxWidth, height: boxHeight);
-
-    case BoxFit.fitHeight:
-      if (source != null) {
-        return DecodeTarget(
-          width: math.max(1, (boxHeight * source.width / source.height).ceil()),
-          height: boxHeight,
-        );
-      }
-      return DecodeTarget(width: boxWidth, height: boxHeight);
+DecodeTarget _coverTarget({
+  required int boxWidth,
+  required int boxHeight,
+  required Size? source,
+  required double coverOverscan,
+}) {
+  if (source == null) {
+    _checkCoverOverscan(coverOverscan);
+    return DecodeTarget(
+      width: math.max(1, (boxWidth * coverOverscan).ceil()),
+      height: math.max(1, (boxHeight * coverOverscan).ceil()),
+    );
   }
+  final scale = math.max(boxWidth / source.width, boxHeight / source.height);
+  return DecodeTarget(
+    width: math.max(boxWidth, (source.width * scale).ceil()),
+    height: math.max(boxHeight, (source.height * scale).ceil()),
+  );
+}
+
+DecodeTarget _fitWidthTarget({
+  required int boxWidth,
+  required Size? source,
+  required int boxHeight,
+}) {
+  if (source == null) {
+    return DecodeTarget(width: boxWidth, height: boxHeight);
+  }
+  return DecodeTarget(
+    width: boxWidth,
+    height: math.max(1, (boxWidth * source.height / source.width).ceil()),
+  );
+}
+
+DecodeTarget _fitHeightTarget({
+  required int boxHeight,
+  required Size? source,
+  required int boxWidth,
+}) {
+  if (source == null) {
+    return DecodeTarget(width: boxWidth, height: boxHeight);
+  }
+  return DecodeTarget(
+    width: math.max(1, (boxHeight * source.width / source.height).ceil()),
+    height: boxHeight,
+  );
+}
+
+DecodeTarget _refineTarget(
+  DecodeTarget target, {
+  required Size? source,
+  required ImageSourceFormat sourceFormat,
+  required double qualityMargin,
+  required int decodeSizeStep,
+}) {
+  if (!target.resizes) {
+    return target;
+  }
+
+  var width = target.width!;
+  var height = target.height!;
+
+  // PNG never rounds a resize request down, so extra pixels only cost memory.
+  if (sourceFormat != ImageSourceFormat.png && qualityMargin > 1) {
+    width = (width * qualityMargin).ceil();
+    height = (height * qualityMargin).ceil();
+  }
+
+  if (sourceFormat == ImageSourceFormat.jpeg) {
+    if (source != null) {
+      final native = _jpegNativeScale(width, height, source);
+      width = native.width;
+      height = native.height;
+    }
+    // Without a source size, quantizing could cross a native scale boundary
+    // and silently overdecode. Leave the margin-adjusted target alone.
+  } else if (decodeSizeStep > 1) {
+    width = _quantizeUp(width, decodeSizeStep);
+    height = _quantizeUp(height, decodeSizeStep);
+  }
+
+  return DecodeTarget(
+    width: math.max(1, width),
+    height: math.max(1, height),
+    policy: target.policy,
+    allowUpscaling: target.allowUpscaling,
+  );
+}
+
+({int width, int height}) _jpegNativeScale(
+  int targetWidth,
+  int targetHeight,
+  Size source,
+) {
+  var eighths = 1;
+  while (eighths < 8) {
+    final width = (source.width * eighths / 8).ceil();
+    final height = (source.height * eighths / 8).ceil();
+    if (width >= targetWidth && height >= targetHeight) {
+      break;
+    }
+    eighths++;
+  }
+  return (
+    width: math.max(1, (source.width * eighths / 8).ceil()),
+    height: math.max(1, (source.height * eighths / 8).ceil()),
+  );
+}
+
+int _quantizeUp(int value, int step) {
+  if (step <= 1) {
+    return value;
+  }
+  return ((value + step - 1) ~/ step) * step;
 }
 
 Size? _normalizedSource(Size? source) {
@@ -144,6 +269,26 @@ void _checkCoverOverscan(double value) {
       value,
       'coverOverscan',
       'must be finite and at least 1',
+    );
+  }
+}
+
+void _checkQualityMargin(double value) {
+  if (!value.isFinite || value < 1) {
+    throw ArgumentError.value(
+      value,
+      'qualityMargin',
+      'must be finite and at least 1',
+    );
+  }
+}
+
+void _checkDecodeSizeStep(int value) {
+  if (value < 1) {
+    throw ArgumentError.value(
+      value,
+      'decodeSizeStep',
+      'must be at least 1',
     );
   }
 }

@@ -6,3 +6,5 @@ export 'src/decode_target.dart' show DecodeTarget, computeDecodeTarget;
 export 'src/image_budget.dart' show ImageBudget;
 export 'src/image_budget_stats.dart' show ImageBudgetStats;
 export 'src/image_bytes.dart' show decodedBytesFor;
+export 'src/image_source_format.dart' show ImageSourceFormat;
+export 'src/image_variant.dart' show ImageVariant;

@@ -17,6 +17,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_budget/image_budget.dart';
 
 const _defaultIterations = 5;
@@ -176,37 +177,126 @@ Future<List<_Fixture>> _createFixtures() async {
   return [
     _Fixture(
       name: 'landscape',
+      format: _FixtureFormat.png,
       size: _landscape,
       encoded: await _encodePng(_landscape, 0),
     ),
     _Fixture(
       name: 'portrait',
+      format: _FixtureFormat.png,
       size: _portrait,
       encoded: await _encodePng(_portrait, 1),
     ),
     _Fixture(
       name: 'small',
+      format: _FixtureFormat.png,
       size: _small,
       encoded: await _encodePng(_small, 2),
+    ),
+    _Fixture(
+      name: 'landscape-jpeg',
+      format: _FixtureFormat.jpeg,
+      size: _landscape,
+      encoded: await _encodeJpeg(_landscape, 0),
+    ),
+    _Fixture(
+      name: 'portrait-jpeg',
+      format: _FixtureFormat.jpeg,
+      size: _portrait,
+      encoded: await _encodeJpeg(_portrait, 1),
     ),
   ];
 }
 
 Future<Uint8List> _encodePng(Size size, int seed) async {
-  final recorder = ui.PictureRecorder();
-  final canvas = Canvas(recorder);
-  final paint = Paint();
   final width = size.width.toInt();
   final height = size.height.toInt();
-  final columns = 16;
-  final rows = 12;
+  final cacheDirectory = Directory('benchmark/.cache');
+  final cacheFile = File(
+    '${cacheDirectory.path}/fixture_${width}x${height}_$seed.png',
+  );
+  if (cacheFile.existsSync()) {
+    return cacheFile.readAsBytesSync();
+  }
+
+  final image = await _renderDetailedImage(size, seed);
+  try {
+    final png = (await image.toByteData(format: ui.ImageByteFormat.png))!;
+    final encoded = png.buffer.asUint8List(
+      png.offsetInBytes,
+      png.lengthInBytes,
+    );
+    cacheDirectory.createSync(recursive: true);
+    cacheFile.writeAsBytesSync(encoded);
+    return encoded;
+  } finally {
+    image.dispose();
+  }
+}
+
+Future<Uint8List> _encodeJpeg(Size size, int seed) async {
+  final width = size.width.toInt();
+  final height = size.height.toInt();
+  final cacheDirectory = Directory('benchmark/.cache');
+  final cacheFile = File(
+    '${cacheDirectory.path}/fixture_${width}x${height}_${seed}_q85.jpg',
+  );
+  if (cacheFile.existsSync()) {
+    return cacheFile.readAsBytesSync();
+  }
+
+  final rgba = await _renderDetailedRgba(size, seed);
+  final image = img.Image.fromBytes(
+    width: width,
+    height: height,
+    bytes: rgba.buffer,
+    bytesOffset: rgba.offsetInBytes,
+    numChannels: 4,
+    order: img.ChannelOrder.rgba,
+  );
+  final encoded = img.encodeJpg(image, quality: 85);
+  cacheDirectory.createSync(recursive: true);
+  cacheFile.writeAsBytesSync(encoded);
+  return encoded;
+}
+
+Future<Uint8List> _renderDetailedRgba(Size size, int seed) async {
+  final image = await _renderDetailedImage(size, seed);
+  try {
+    final data = await image.toByteData();
+    return data!.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+  } finally {
+    image.dispose();
+  }
+}
+
+Future<ui.Image> _renderDetailedImage(Size size, int seed) async {
+  final width = size.width.toInt();
+  final height = size.height.toInt();
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  final bounds = Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble());
+  final background = Paint()
+    ..shader = ui.Gradient.linear(
+      Offset.zero,
+      Offset(width.toDouble(), height.toDouble()),
+      [
+        Color.fromARGB(255, (30 + seed * 40) % 256, 80, 190),
+        Color.fromARGB(255, 220, (120 + seed * 35) % 256, 40),
+      ],
+    );
+  canvas.drawRect(bounds, background);
+
+  const columns = 80;
+  const rows = 60;
+  final paint = Paint();
   for (var y = 0; y < rows; y++) {
     for (var x = 0; x < columns; x++) {
       paint.color = Color.fromARGB(
-        255,
-        (x * 16 + seed * 40) % 256,
-        (y * 21 + seed * 13) % 256,
-        ((x ^ y) * 16 + seed * 29) % 256,
+        210,
+        (x * 37 + y * 11 + seed * 53) % 256,
+        (x * 17 + y * 43 + seed * 29) % 256,
+        ((x ^ y) * 23 + seed * 71) % 256,
       );
       canvas.drawRect(
         Rect.fromLTWH(
@@ -219,15 +309,24 @@ Future<Uint8List> _encodePng(Size size, int seed) async {
       );
     }
   }
+
+  paint
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2;
+  for (var i = 0; i < 240; i++) {
+    paint.color = Color.fromARGB(
+      120,
+      (i * 31 + seed * 19) % 256,
+      (i * 13 + seed * 47) % 256,
+      (i * 7 + seed * 61) % 256,
+    );
+    final x = i * width / 240;
+    canvas.drawLine(Offset(x, 0), Offset(width - x, height.toDouble()), paint);
+  }
+
   final picture = recorder.endRecording();
   try {
-    final image = await picture.toImage(width, height);
-    try {
-      final png = (await image.toByteData(format: ui.ImageByteFormat.png))!;
-      return png.buffer.asUint8List(png.offsetInBytes, png.lengthInBytes);
-    } finally {
-      image.dispose();
-    }
+    return await picture.toImage(width, height);
   } finally {
     picture.dispose();
   }
@@ -270,6 +369,9 @@ Future<ImageProvider<Object>> _extractProvider(
             fit: scenario.fit,
             sourcePixelSize: scenario.sourcePixelSize,
             coverOverscan: scenario.coverOverscan,
+            sourceFormat: scenario.sourceFormat,
+            qualityMargin: scenario.qualityMargin,
+            decodeSizeStep: scenario.decodeSizeStep,
           ),
         ),
       ),
@@ -289,6 +391,9 @@ Future<ImageProvider<Object>> _extractProvider(
     fit: scenario.fit,
     sourcePixelSize: scenario.sourcePixelSize,
     coverOverscan: scenario.coverOverscan,
+    sourceFormat: scenario.sourceFormat,
+    qualityMargin: scenario.qualityMargin,
+    decodeSizeStep: scenario.decodeSizeStep,
   );
   if (target.resizes) {
     expect(provider, isA<ResizeImage>(), reason: scenario.name);
@@ -330,6 +435,9 @@ Future<_ScenarioResult> _measureScenario(
     fit: scenario.fit,
     sourcePixelSize: scenario.sourcePixelSize,
     coverOverscan: scenario.coverOverscan,
+    sourceFormat: scenario.sourceFormat,
+    qualityMargin: scenario.qualityMargin,
+    decodeSizeStep: scenario.decodeSizeStep,
   );
   final measured = await _timeProvider(
     provider,
@@ -587,7 +695,8 @@ String _renderMarkdown(_Report report) {
     [
       'Fixture',
       'Source pixels',
-      'PNG bytes',
+      'Format',
+      'Encoded bytes',
       'Decoded bytes',
       'Full decode ms'
     ],
@@ -596,6 +705,7 @@ String _renderMarkdown(_Report report) {
         [
           fixture.name,
           '${fixture.size.width.toInt()} × ${fixture.size.height.toInt()}',
+          fixture.format.name.toUpperCase(),
           _group(report.fullResults[fixture.name]!.encodedBytes),
           _group(_bytesFor(fixture.size)),
           report.fullResults[fixture.name]!.timing.medianMs.toStringAsFixed(1),
@@ -707,13 +817,23 @@ String _renderMarkdown(_Report report) {
     ..writeln('## Notes')
     ..writeln()
     ..writeln(
-      '- Fixtures are synthetic, flat-color PNGs built in memory at test '
-      'start. PNG decode cost is not representative of every format.',
+      '- Fixtures are synthetic PNGs and generated JPEGs built in memory at '
+      'test start. Decode cost is not representative of every photo.',
     )
     ..writeln(
       '- `flutter test` runs the VM in JIT mode, so absolute milliseconds are '
       'for comparison on this machine only. Treat the ratios as a signal, not '
       'a release-mode promise.',
+    )
+    ..writeln(
+      '- JPEG with a known source size snaps to a native 1/8 scale. On this '
+      'machine it cuts both decoded bytes and cold decode time.',
+    )
+    ..writeln(
+      '- PNG resized decode cuts decoded bytes, but cold decode time can be '
+      'higher than a full decode in this JIT harness because the codec decodes '
+      'the source and then resizes. Pre-sized PNG variants cut both; see '
+      '`session.md`.',
     )
     ..writeln(
       '- Decode time covers provider resolution through the first frame, '
@@ -756,6 +876,7 @@ Map<String, Object?> _reportToJson(_Report report) {
       for (final fixture in report.fixtures)
         {
           'name': fixture.name,
+          'format': fixture.format.name,
           'width': fixture.size.width.toInt(),
           'height': fixture.size.height.toInt(),
           'fullDecodedBytes': _bytesFor(fixture.size),
@@ -779,6 +900,9 @@ Map<String, Object?> _reportToJson(_Report report) {
           'sourceWidth': result.scenario.sourcePixelSize?.width,
           'sourceHeight': result.scenario.sourcePixelSize?.height,
           'coverOverscan': result.scenario.coverOverscan,
+          'sourceFormat': result.scenario.sourceFormat.name,
+          'qualityMargin': result.scenario.qualityMargin,
+          'decodeSizeStep': result.scenario.decodeSizeStep,
           'decodeBoundsWidth': result.target.width,
           'decodeBoundsHeight': result.target.height,
           'resizePolicy':
@@ -950,14 +1074,18 @@ class _Timing {
 class _Fixture {
   const _Fixture({
     required this.name,
+    required this.format,
     required this.size,
     required this.encoded,
   });
 
   final String name;
+  final _FixtureFormat format;
   final Size size;
   final Uint8List encoded;
 }
+
+enum _FixtureFormat { png, jpeg }
 
 class _FullResult {
   const _FullResult({
@@ -980,6 +1108,9 @@ class _Scenario {
     required this.fit,
     this.sourcePixelSize,
     this.coverOverscan = 2.0,
+    this.sourceFormat = ImageSourceFormat.png,
+    this.qualityMargin = 1,
+    this.decodeSizeStep = 1,
   });
 
   final String name;
@@ -989,6 +1120,9 @@ class _Scenario {
   final BoxFit fit;
   final Size? sourcePixelSize;
   final double coverOverscan;
+  final ImageSourceFormat sourceFormat;
+  final double qualityMargin;
+  final int decodeSizeStep;
 }
 
 class _ScenarioResult {
@@ -1092,6 +1226,73 @@ class _BenchCompleter extends ImageStreamCompleter {
 }
 
 const _scenarios = <_Scenario>[
+  _Scenario(
+    name: 'contain, card @3x, JPEG',
+    fixture: 'landscape-jpeg',
+    displaySize: Size(400, 300),
+    dpr: 3,
+    fit: BoxFit.contain,
+    sourcePixelSize: _landscape,
+    sourceFormat: ImageSourceFormat.jpeg,
+    qualityMargin: 1.25,
+  ),
+  _Scenario(
+    name: 'contain, card @3x, JPEG margin 1',
+    fixture: 'landscape-jpeg',
+    displaySize: Size(400, 300),
+    dpr: 3,
+    fit: BoxFit.contain,
+    sourcePixelSize: _landscape,
+    sourceFormat: ImageSourceFormat.jpeg,
+    qualityMargin: 1,
+  ),
+  _Scenario(
+    name: 'cover, card @3x, JPEG',
+    fixture: 'landscape-jpeg',
+    displaySize: Size(400, 300),
+    dpr: 3,
+    fit: BoxFit.cover,
+    sourcePixelSize: _landscape,
+    sourceFormat: ImageSourceFormat.jpeg,
+    qualityMargin: 1.25,
+  ),
+  _Scenario(
+    name: 'contain, portrait @3x, JPEG',
+    fixture: 'portrait-jpeg',
+    displaySize: Size(400, 300),
+    dpr: 3,
+    fit: BoxFit.contain,
+    sourcePixelSize: _portrait,
+    sourceFormat: ImageSourceFormat.jpeg,
+    qualityMargin: 1.25,
+  ),
+  _Scenario(
+    name: 'contain, card @3x, PNG exact',
+    fixture: 'landscape',
+    displaySize: Size(400, 300),
+    dpr: 3,
+    fit: BoxFit.contain,
+    sourcePixelSize: _landscape,
+  ),
+  _Scenario(
+    name: 'contain, card @3x, PNG step 32',
+    fixture: 'landscape',
+    displaySize: Size(400, 300),
+    dpr: 3,
+    fit: BoxFit.contain,
+    sourcePixelSize: _landscape,
+    decodeSizeStep: 32,
+  ),
+  _Scenario(
+    name: 'contain, card @3x, auto margin 1.25',
+    fixture: 'landscape',
+    displaySize: Size(400, 300),
+    dpr: 3,
+    fit: BoxFit.contain,
+    sourcePixelSize: _landscape,
+    sourceFormat: ImageSourceFormat.auto,
+    qualityMargin: 1.25,
+  ),
   _Scenario(
     name: 'contain, card @3x',
     fixture: 'landscape',

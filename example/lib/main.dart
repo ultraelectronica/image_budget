@@ -5,18 +5,25 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_budget/image_budget.dart';
 
-void main() => runApp(const ImageBudgetDemo());
+import 'benchmark.dart';
+
+void main() {
+  const autoBenchmark = bool.fromEnvironment('IMAGE_BUDGET_BENCH');
+  runApp(const ImageBudgetDemo(autoBenchmark: autoBenchmark));
+}
 
 enum _ImageMode { stock, budgeted }
 
 class ImageBudgetDemo extends StatelessWidget {
-  const ImageBudgetDemo({super.key});
+  const ImageBudgetDemo({super.key, required this.autoBenchmark});
+
+  final bool autoBenchmark;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
         title: 'Image Budget Demo',
         theme: ThemeData(colorSchemeSeed: Colors.teal),
-        home: const _Feed(),
+        home: autoBenchmark ? const ResizeBenchmark() : const _Feed(),
       );
 }
 
@@ -32,7 +39,20 @@ class _FeedState extends State<_Feed> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Image Budget Demo')),
+        appBar: AppBar(
+          title: const Text('Image Budget Demo'),
+          actions: [
+            IconButton(
+              tooltip: 'Resize benchmark',
+              icon: const Icon(Icons.speed),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const ResizeBenchmark(),
+                ),
+              ),
+            ),
+          ],
+        ),
         body: SafeArea(
           child: Center(
             child: ConstrainedBox(
@@ -117,6 +137,7 @@ class _FeedCard extends StatelessWidget {
                     image: fixture.image,
                     fit: BoxFit.cover,
                     sourcePixelSize: fixture.size,
+                    sourceFormat: ImageSourceFormat.png,
                     semanticLabel: fixture.label,
                   ),
               },
